@@ -39,7 +39,9 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
   using Anotar.Serilog;
   using HtmlAgilityPack;
   using mshtml;
+  using SuperMemoAssistant.Extensions;
   using SuperMemoAssistant.Interop.SuperMemo.Content.Contents;
+  using SuperMemoAssistant.Interop.SuperMemo.Content.Controls;
   using SuperMemoAssistant.Interop.SuperMemo.Content.Models;
   using SuperMemoAssistant.Interop.SuperMemo.Elements.Builders;
   using SuperMemoAssistant.Interop.SuperMemo.Elements.Models;
@@ -69,10 +71,8 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
 
     /// <inheritdoc />
     public override bool HasSettings => false;
-    private const int MaxTextLength = 2000000000;
 
     #endregion
-
 
     #region Methods Impl
 
@@ -81,8 +81,8 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
     {
 
       Svc.HotKeyManager.RegisterGlobal(
-        "ItemCloze",
-        "Create new Item Cloze",
+        "ClozeAsItem",
+        "Create a new Cloze as an Item",
         HotKeyScopes.SMBrowser,
         new HotKey(Key.Z, KeyModifiers.CtrlAltShift),
         CreateItemCloze
@@ -107,28 +107,30 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
           return;
 
         var parentEl = Svc.SM.UI.ElementWdw.CurrentElement;
-        if (parentEl == null)
+        if (parentEl == null || parentEl.Type == ElementType.Item)
           return;
 
         var references = ReferenceParser.GetReferences(content);
         if (references == null)
           return;
 
-        int textSelStart = GetSelStart(selObj);
-        int textSelEnd = GetSelEnd(selObj);
-        if (textSelStart == -1 || textSelEnd == -1 || textSelEnd < textSelStart)
+        int textSelStartIdx = Utils.GetSelectionTextStartIdx(selObj);
+        int textSelEndIdx = Utils.GetSelectionTextEndIdx(selObj);
+        if (textSelStartIdx == -1 || textSelEndIdx == -1 || textSelEndIdx < textSelStartIdx)
           return;
 
-        int htmlSelStart = ConvertTextIdxToHtmlIdx(content, textSelStart);
-        int htmlSelEnd = ConvertTextIdxToHtmlIdx(content, textSelEnd);
-        int htmlSelLength = htmlSelEnd - htmlSelStart;
+        int htmlSelStartIdx = Utils.ConvertTextIdxToHtmlIdx(content, textSelStartIdx);
+        int htmlSelEndIdx = Utils.ConvertTextIdxToHtmlIdx(content, textSelEndIdx);
 
-        string question = content.Substring(0, htmlSelStart) + "<span class='cloze'>[...]</span>" + content.Substring(htmlSelEnd);
-        string answer = content.Substring(htmlSelStart, htmlSelLength);
+        // +1 because converting from index to length
+        int htmlSelLength = (htmlSelEndIdx - htmlSelStartIdx) + 1;
+
+        string question = content.Substring(0, htmlSelStartIdx) + "<span class='cloze'>[...]</span>" + content.Substring(htmlSelStartIdx + htmlSelLength);
+        string answer = content.Substring(htmlSelStartIdx, htmlSelLength);
         if (string.IsNullOrEmpty(question) || string.IsNullOrEmpty(answer))
           return;
 
-        //CreateSMElement(question, answer, parentEl);
+        CreateSMElement(question, answer, parentEl);
 
       }
       catch (RemotingException) { }
@@ -148,6 +150,38 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
       {
         LogTo.Error("Failed to CreateSMElement beacuse parent element was null");
         return;
+      }
+
+      if (parent.Id != Svc.SM.UI.ElementWdw.CurrentElementId)
+      {
+        LogTo.Debug("Failed to CreateSMElement because the displayed element changed");
+        return;
+      }
+
+      var ctrlGroup = Svc.SM.UI.ElementWdw.ControlGroup;
+      for (int i = 0; i < ctrlGroup.Count; i++)
+      {
+        var ctrl = ctrlGroup[i];
+        if (ctrl == null || i == ctrlGroup.FocusedControlIndex)
+          continue;
+
+        // TODO: How to maintain same size, layout options
+        // TODO: Add other component types
+        // TODO: Create a generic 'inherit parent components' utility
+
+        switch (ctrl.Type)
+        {
+
+          case ComponentType.Image:
+            var image = ctrl as IControlImage;
+            contents.Add(new ImageContent(image.ImageMemberId));
+            break;
+
+          default:
+            break;
+
+        }
+
       }
 
       bool success = Svc.SM.Registry.Element.Add(
@@ -170,53 +204,6 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
       }
     }
 
-    // TODO: Not Working
-    private int ConvertTextIdxToHtmlIdx(string html, int textIdx)
-    {
-      var doc = new HtmlDocument();
-      doc.LoadHtml(html);
-      var nodes = doc.DocumentNode.Descendants();
-
-      int startIdx = 0;
-      int endIdx = 0;
-
-      int htmlIdx = -1;
-
-      foreach (var node in nodes)
-      {
-        endIdx += node.InnerText?.Length ?? 0;
-        if (startIdx <= textIdx && textIdx <= endIdx)
-        {
-          htmlIdx = node.InnerStartIndex + (textIdx - startIdx);
-          break;
-        }
-      }
-
-      return htmlIdx;
-    }
-
-    private int GetSelEnd(IHTMLTxtRange selObj)
-    {
-      int result = -1;
-      if (selObj != null)
-      {
-        var duplicate = selObj.duplicate();
-        result = Math.Abs(duplicate.moveEnd("character", -MaxTextLength));
-      }
-      return result;
-    }
-
-    private int GetSelStart(IHTMLTxtRange selObj)
-    {
-      int result = -1;
-      if (selObj != null)
-      {
-        var duplicate = selObj.duplicate();
-        result = Math.Abs(duplicate.moveStart("character", -MaxTextLength));
-      }
-      return result;
-    }
-
     // Set HasSettings to true, and uncomment this method to add your custom logic for settings
     // /// <inheritdoc />
     // public override void ShowSettings()
@@ -225,21 +212,7 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
 
     #endregion
 
-
-
-
     #region Methods
-
-    // Uncomment to register an event handler for element changed events
-    // [LogToErrorOnException]
-    // public void OnElementChanged(SMDisplayedElementChangedEventArgs e)
-    // {
-    //   try
-    //   {
-    //     Insert your logic here
-    //   }
-    //   catch (RemotingException) { }
-    // }
 
     #endregion
   }
