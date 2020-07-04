@@ -116,17 +116,23 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
 
         int textSelStartIdx = Utils.GetSelectionTextStartIdx(selObj);
         int textSelEndIdx = Utils.GetSelectionTextEndIdx(selObj);
+
         if (textSelStartIdx == -1 || textSelEndIdx == -1 || textSelEndIdx < textSelStartIdx)
           return;
 
+        string selHtml = selObj.htmlText;
+        string selText2 = selObj.text;
+
         int htmlSelStartIdx = Utils.ConvertTextIdxToHtmlIdx(content, textSelStartIdx);
-        int htmlSelEndIdx = Utils.ConvertTextIdxToHtmlIdx(content, textSelEndIdx);
 
-        // +1 because converting from index to length
-        int htmlSelLength = (htmlSelEndIdx - htmlSelStartIdx) + 1;
+        // int htmlSelEndIdx = Utils.ConvertTextIdxToHtmlIdx(content, textSelEndIdx);
 
-        string question = content.Substring(0, htmlSelStartIdx) + "<span class='cloze'>[...]</span>" + content.Substring(htmlSelStartIdx + htmlSelLength);
-        string answer = content.Substring(htmlSelStartIdx, htmlSelLength);
+        string preCloze = content.Substring(0, htmlSelStartIdx);
+
+        string postCloze = content.Substring(htmlSelStartIdx + selHtml.Length);
+
+        string question = preCloze + "<span class='cloze'>[...]</span>" + postCloze;
+        string answer = content.Substring(htmlSelStartIdx, selHtml.Length);
         if (string.IsNullOrEmpty(question) || string.IsNullOrEmpty(answer))
           return;
 
@@ -148,7 +154,7 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
 
       if (parent == null)
       {
-        LogTo.Error("Failed to CreateSMElement beacuse parent element was null");
+        LogTo.Error("Failed to CreateSMElement because parent element was null");
         return;
       }
 
