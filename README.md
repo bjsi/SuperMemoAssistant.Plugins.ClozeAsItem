@@ -3,7 +3,6 @@
 ## Features
 
 - Create clozes that behave like items.
-- The item can optionally inherit components like clozes do.
 - The item will have a higher starting interval than normal clozes.
 
 ## Installation
