@@ -1,43 +1,10 @@
 ﻿using HtmlAgilityPack;
+using SuperMemoAssistant.Interop.SuperMemo.Elements.Builders;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 
 namespace SuperMemoAssistant.Plugins.ClozeAsItem
 {
-  public class References
-  {
-    //
-    // Summary:
-    //     Notes about the given content
-    public string Comment { get; set; }
-    //
-    // Summary:
-    //     The original uri for the given content
-    public string Link { get; set; }
-    //
-    // Summary:
-    //     The original source for the given content
-    public string Source { get; set; }
-
-    public string Date { get; set; }
-    //
-    // Summary:
-    //     The title for the given content
-    public string Title { get; set; }
-    //
-    // Summary:
-    //     The original author for the given content
-    public string Author { get; set; }
-    //
-    // Summary:
-    //     The email from which the given content was extracted
-    public string Email { get; set; }
-  }
-
   public static class ReferenceParser
   {
 
@@ -66,7 +33,6 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
       // Get each reference as a string and add to the reference object
       refs.Author = GetReference(referenceString, "Author");
       refs.Comment = GetReference(referenceString, "Comment");
-      refs.Date = GetReference(referenceString, "Date");
       refs.Email = GetReference(referenceString, "Email");
       refs.Link = GetReference(referenceString, "Link");
       refs.Source = GetReference(referenceString, "Source");
@@ -110,14 +76,12 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
 
       if (match.Success)
       {
-
         string reference = match.Groups[1].Value;
 
         // Remove any html within the reference 
         var doc = new HtmlDocument();
         doc.LoadHtml(reference);
         return doc.DocumentNode.InnerText?.Trim();
-
       }
 
       return string.Empty;

@@ -1,4 +1,22 @@
-﻿#region License & Metadata
+﻿using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.Remoting;
+using System.Threading.Tasks;
+using System.Windows.Input;
+using Anotar.Serilog;
+using SuperMemoAssistant.Extensions;
+using SuperMemoAssistant.Interop.SuperMemo.Content.Contents;
+using SuperMemoAssistant.Interop.SuperMemo.Content.Models;
+using SuperMemoAssistant.Interop.SuperMemo.Elements.Builders;
+using SuperMemoAssistant.Interop.SuperMemo.Elements.Models;
+using SuperMemoAssistant.Services;
+using SuperMemoAssistant.Services.IO.HotKeys;
+using SuperMemoAssistant.Services.IO.Keyboard;
+using SuperMemoAssistant.Services.Sentry;
+using SuperMemoAssistant.Services.UI.Configuration;
+using SuperMemoAssistant.Sys.IO.Devices;
+
+#region License & Metadata
 
 // The MIT License (MIT)
 // 
@@ -31,26 +49,6 @@
 
 namespace SuperMemoAssistant.Plugins.ClozeAsItem
 {
-  using System;
-  using System.Collections.Generic;
-  using System.Diagnostics.CodeAnalysis;
-  using System.Runtime.Remoting;
-  using System.Windows.Input;
-  using Anotar.Serilog;
-  using HtmlAgilityPack;
-  using mshtml;
-  using SuperMemoAssistant.Extensions;
-  using SuperMemoAssistant.Interop.SuperMemo.Content.Contents;
-  using SuperMemoAssistant.Interop.SuperMemo.Content.Controls;
-  using SuperMemoAssistant.Interop.SuperMemo.Content.Models;
-  using SuperMemoAssistant.Interop.SuperMemo.Elements.Builders;
-  using SuperMemoAssistant.Interop.SuperMemo.Elements.Models;
-  using SuperMemoAssistant.Interop.SuperMemo.Elements.Types;
-  using SuperMemoAssistant.Services;
-  using SuperMemoAssistant.Services.IO.Keyboard;
-  using SuperMemoAssistant.Services.Sentry;
-  using SuperMemoAssistant.Sys.IO.Devices;
-
   // ReSharper disable once UnusedMember.Global
   // ReSharper disable once ClassNeverInstantiated.Global
   [SuppressMessage("Microsoft.Naming", "CA1724:TypeNamesShouldNotMatchNamespaces")]
@@ -70,20 +68,30 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
     public override string Name => "ClozeAsItem";
 
     /// <inheritdoc />
-    public override bool HasSettings => false;
+    public override bool HasSettings => true;
+
+    public ClozeAsItemCfg Config { get; private set; }
 
     #endregion
 
     #region Methods Impl
 
+    private async Task LoadConfig()
+    {
+      Config = await Svc.Configuration.Load<ClozeAsItemCfg>().ConfigureAwait(false) ?? new ClozeAsItemCfg();
+    }
+
+
     /// <inheritdoc />
     protected override void PluginInit()
     {
 
+      LoadConfig().Wait();
+
       Svc.HotKeyManager.RegisterGlobal(
         "ClozeAsItem",
         "Create a new Cloze as an Item",
-        HotKeyScopes.SMBrowser,
+        HotKeyScope.SMBrowser,
         new HotKey(Key.Z, KeyModifiers.CtrlAltShift),
         CreateItemCloze
       );
@@ -93,61 +101,59 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
     [LogToErrorOnException]
     private void CreateItemCloze()
     {
-
       try
       {
-
-        var selObj = Utils.GetSelectionObject();
-        string selText = selObj?.text;
-        if (selObj == null || string.IsNullOrEmpty(selText))
-          return;
-
-        var content = Utils.GetCurrentElementContent();
-        if (string.IsNullOrEmpty(content))
-          return;
-
         var parentEl = Svc.SM.UI.ElementWdw.CurrentElement;
         if (parentEl == null || parentEl.Type == ElementType.Item)
           return;
 
-        var references = ReferenceParser.GetReferences(content);
-        if (references == null)
+        var selObj = Utils.GetSelectionObject();
+        string selText = selObj?.htmlText;
+        if (selObj == null || string.IsNullOrEmpty(selText))
           return;
 
-        int textSelStartIdx = Utils.GetSelectionTextStartIdx(selObj);
-        int textSelEndIdx = Utils.GetSelectionTextEndIdx(selObj);
-
-        if (textSelStartIdx == -1 || textSelEndIdx == -1 || textSelEndIdx < textSelStartIdx)
+        var htmlCtrl = Utils.GetFocusedHtmlCtrl();
+        var htmlDoc = htmlCtrl?.GetDocument();
+        if (htmlDoc == null)
           return;
+        
+        selObj.pasteHTML("[...]");
+        string questionChild = htmlDoc.body.innerHTML.Replace("[...]", "<SPAN class=cloze>[...]</SPAN>");
 
-        string selHtml = selObj.htmlText;
-        string selText2 = selObj.text;
+        int MaxTextLength = 2000000000;
+        selObj.moveEnd("character", MaxTextLength);
+        selObj.moveStart("character", -MaxTextLength);
 
-        int htmlSelStartIdx = Utils.ConvertTextIdxToHtmlIdx(content, textSelStartIdx);
+        selObj.findText("[...]");
+        selObj.select();
 
-        // int htmlSelEndIdx = Utils.ConvertTextIdxToHtmlIdx(content, textSelEndIdx);
+        selObj.pasteHTML("<SPAN class=clozed>" + selText + "</SPAN>");
+        string parentContent = htmlDoc.body.innerHTML;
+        
+        htmlCtrl.Text = parentContent;
 
-        string preCloze = content.Substring(0, htmlSelStartIdx);
-
-        string postCloze = content.Substring(htmlSelStartIdx + selHtml.Length);
-
-        string question = preCloze + "<span class='cloze'>[...]</span>" + postCloze;
-        string answer = content.Substring(htmlSelStartIdx, selHtml.Length);
-        if (string.IsNullOrEmpty(question) || string.IsNullOrEmpty(answer))
-          return;
-
-        CreateSMElement(question, answer, parentEl);
+        var references = ReferenceParser.GetReferences(parentContent);
+        CreateSMElement(RemoveReferences(questionChild), selText, references);
 
       }
       catch (RemotingException) { }
+    }
 
+    private string RemoveReferences(string htmlText)
+    {
+      var idx = htmlText.IndexOf("HR SuperMemo", System.StringComparison.InvariantCultureIgnoreCase);
+      if (idx >= 0)
+        return htmlText.Substring(0, idx + 1);
+      return htmlText;
     }
 
     [LogToErrorOnException]
-    private void CreateSMElement(string question, string answer, IElement parent)
+    private void CreateSMElement(string question, string answer, References refs)
     {
 
       var contents = new List<ContentBase>();
+      var parent = Svc.SM.UI.ElementWdw.CurrentElement;
+      var ctrlGroup = Svc.SM.UI.ElementWdw.ControlGroup;
 
       contents.Add(new TextContent(true, question));
       contents.Add(new TextContent(true, answer, displayAt: AtFlags.NonQuestion));
@@ -158,46 +164,26 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
         return;
       }
 
-      if (parent.Id != Svc.SM.UI.ElementWdw.CurrentElementId)
+      if (Config.InheritComponents)
       {
-        LogTo.Debug("Failed to CreateSMElement because the displayed element changed");
-        return;
-      }
-
-      var ctrlGroup = Svc.SM.UI.ElementWdw.ControlGroup;
-      for (int i = 0; i < ctrlGroup.Count; i++)
-      {
-        var ctrl = ctrlGroup[i];
-        if (ctrl == null || i == ctrlGroup.FocusedControlIndex)
-          continue;
-
-        // TODO: How to maintain same size, layout options
-        // TODO: Add other component types
-        // TODO: Create a generic 'inherit parent components' utility
-
-        switch (ctrl.Type)
+        if (ctrlGroup == null)
         {
-
-          case ComponentType.Image:
-            var image = ctrl as IControlImage;
-            contents.Add(new ImageContent(image.ImageMemberId));
-            break;
-
-          default:
-            break;
-
+          LogTo.Error("Failed to CreateSMElement because parent element was null");
+          return;
         }
 
+        // InheritComponents(contents, parent, ctrlGroup);
       }
 
       bool success = Svc.SM.Registry.Element.Add(
-        out var value,
+        out _,
         ElemCreationFlags.ForceCreate,
         new ElementBuilder(ElementType.Item, contents.ToArray())
           .WithParent(parent)
           .WithLayout("Item")
           .WithPriority(30)
           .DoNotDisplay()
+          .WithReference((_) => refs)
       );
 
       if (success)
@@ -211,15 +197,15 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
     }
 
     // Set HasSettings to true, and uncomment this method to add your custom logic for settings
-    // /// <inheritdoc />
-    // public override void ShowSettings()
-    // {
-    // }
+     /// <inheritdoc />
+    public override void ShowSettings()
+    {
+      ConfigurationWindow.ShowAndActivate(HotKeyManager.Instance, Config);
+    }
 
     #endregion
 
     #region Methods
-
     #endregion
   }
 }
