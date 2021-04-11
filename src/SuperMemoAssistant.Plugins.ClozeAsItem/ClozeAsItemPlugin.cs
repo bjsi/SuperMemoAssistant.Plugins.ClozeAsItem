@@ -164,17 +164,6 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
         return;
       }
 
-      if (Config.InheritComponents)
-      {
-        if (ctrlGroup == null)
-        {
-          LogTo.Error("Failed to CreateSMElement because parent element was null");
-          return;
-        }
-
-        // InheritComponents(contents, parent, ctrlGroup);
-      }
-
       bool success = Svc.SM.Registry.Element.Add(
         out _,
         ElemCreationFlags.ForceCreate,

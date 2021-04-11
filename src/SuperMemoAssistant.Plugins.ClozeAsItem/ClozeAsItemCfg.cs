@@ -43,6 +43,8 @@ namespace SuperMemoAssistant.Plugins.ClozeAsItem
     [Action("twitter", "Twitter", Placement = Placement.Before, LinePosition = Position.Left)]
 
     [Heading("Settings")]
+    [Field(Name = "Inherit components?")]
+    public bool InheritComponents { get; set; } = true;
 
     [JsonIgnore]
     public bool IsChanged { get; set; }
